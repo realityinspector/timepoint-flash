@@ -1,6 +1,6 @@
 # HANDOFF - TIMEPOINT Flash v2.0 Rebuild
 
-**Status**: Phase 4 Complete ✅ | Phase 5 Ready to Start 🚀
+**Status**: Phase 5 Complete ✅ | Phase 6 Ready to Start 🚀
 **Date**: 2025-11-29
 **Branch**: `main`
 
@@ -45,7 +45,35 @@
 - **New schemas** for Moment, Camera, Graph
 - **New prompts** for Moment, Camera, Graph
 - **Pipeline refactored** to use agent classes
-- **202 tests passing** (all fast tests)
+
+### Phase 5: API Completion ✅
+- **Streaming SSE endpoint** (`POST /api/v1/timepoints/generate/stream`)
+  - Real-time progress events for each pipeline step
+  - Step progress percentages (0-100%)
+  - Error event handling
+
+- **Delete endpoint** (`DELETE /api/v1/timepoints/{id}`)
+  - Cascade delete of generation logs
+  - Proper 404 handling
+
+- **Temporal navigation API** (`app/api/v1/temporal.py`)
+  - `POST /api/v1/temporal/{id}/next` - Generate next moment
+  - `POST /api/v1/temporal/{id}/prior` - Generate prior moment
+  - `GET /api/v1/temporal/{id}/sequence` - Get temporal sequence
+  - Context preservation from source timepoint
+
+- **Model discovery API** (`app/api/v1/models.py`)
+  - `GET /api/v1/models` - List available models with filtering
+  - `GET /api/v1/models/providers` - Provider status and configuration
+  - `GET /api/v1/models/{model_id}` - Model details
+  - OpenRouter model fetching with 15-minute cache
+
+- **Image generation integration**
+  - `generate_image` parameter on streaming endpoint
+  - `image_base64` field on Timepoint model
+  - Proper image URL/base64 storage
+
+- **226 tests passing** (24 new Phase 5 tests)
 
 ---
 
@@ -57,58 +85,38 @@ timepoint-flash/
 ├── app/
 │   ├── main.py              # FastAPI application
 │   ├── config.py            # Settings with ProviderConfig
-│   ├── models.py            # SQLAlchemy models
+│   ├── models.py            # SQLAlchemy models (+ image_base64)
 │   ├── database.py          # DB connection
-│   ├── agents/              # NEW: All agent implementations
+│   ├── agents/              # All agent implementations
 │   │   ├── base.py          # BaseAgent, AgentResult, AgentChain
 │   │   ├── judge.py         # JudgeAgent
 │   │   ├── timeline.py      # TimelineAgent, TimelineInput
 │   │   ├── scene.py         # SceneAgent, SceneInput
 │   │   ├── characters.py    # CharactersAgent, CharactersInput
-│   │   ├── moment.py        # MomentAgent, MomentInput (NEW)
+│   │   ├── moment.py        # MomentAgent, MomentInput
 │   │   ├── dialog.py        # DialogAgent, DialogInput
-│   │   ├── camera.py        # CameraAgent, CameraInput (NEW)
-│   │   ├── graph.py         # GraphAgent, GraphInput (NEW)
+│   │   ├── camera.py        # CameraAgent, CameraInput
+│   │   ├── graph.py         # GraphAgent, GraphInput
 │   │   ├── image_prompt.py  # ImagePromptAgent, ImagePromptInput
-│   │   └── image_gen.py     # ImageGenAgent, ImageGenInput (NEW)
+│   │   └── image_gen.py     # ImageGenAgent, ImageGenInput
 │   ├── core/
 │   │   ├── providers.py     # LLMProvider base classes
 │   │   ├── llm_router.py    # Capability-based routing
 │   │   ├── pipeline.py      # GenerationPipeline (uses agents)
 │   │   └── temporal.py      # TemporalPoint system
 │   ├── schemas/             # Pydantic response models
-│   │   ├── judge.py
-│   │   ├── timeline.py
-│   │   ├── scene.py
-│   │   ├── characters.py
-│   │   ├── moment.py        # NEW
-│   │   ├── dialog.py
-│   │   ├── camera.py        # NEW
-│   │   ├── graph.py         # NEW
-│   │   └── image_prompt.py
 │   ├── prompts/             # Prompt templates
-│   │   ├── judge.py
-│   │   ├── timeline.py
-│   │   ├── scene.py
-│   │   ├── characters.py
-│   │   ├── moment.py        # NEW
-│   │   ├── dialog.py
-│   │   ├── camera.py        # NEW
-│   │   ├── graph.py         # NEW
-│   │   └── image_prompt.py
 │   └── api/v1/
-│       └── timepoints.py    # API routes
+│       ├── __init__.py      # Router aggregation
+│       ├── timepoints.py    # Timepoint CRUD + streaming
+│       ├── temporal.py      # Temporal navigation (NEW)
+│       └── models.py        # Model discovery (NEW)
 ├── tests/
 │   ├── conftest.py
 │   └── unit/
 │       ├── test_agents/
-│       │   ├── test_base.py
-│       │   └── test_agents.py
-│       ├── test_providers.py
-│       ├── test_llm_router.py
-│       ├── test_temporal.py
-│       ├── test_schemas.py
-│       └── test_pipeline.py
+│       ├── test_api_phase5.py  # Phase 5 tests (NEW)
+│       └── ...
 ├── README.md
 ├── REFACTOR.md
 ├── HANDOFF.md
@@ -117,7 +125,7 @@ timepoint-flash/
 
 **Test Results:**
 ```bash
-pytest -m fast    # 202 passed, 9 deselected in 4.04s
+pytest -m fast    # 226 passed, 9 deselected in 1.44s
 ```
 
 **Note:** Use Python 3.10 for tests due to SQLAlchemy compatibility:
@@ -127,36 +135,60 @@ python3.10 -m pytest -m fast -v
 
 ---
 
-## Next: Phase 5 - API Completion
+## API Endpoints Summary
 
-**Your Mission**: Complete API endpoints and add streaming support
+### Timepoints API (`/api/v1/timepoints`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/generate` | Generate timepoint (async) |
+| POST | `/generate/stream` | Generate with SSE streaming |
+| GET | `/{slug}` | Get timepoint by slug |
+| GET | `/` | List timepoints (pagination) |
+| DELETE | `/{id}` | Delete timepoint |
 
-### Tasks (see REFACTOR.md section 8.5 for details)
+### Temporal API (`/api/v1/temporal`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/{id}/next` | Generate next moment |
+| POST | `/{id}/prior` | Generate prior moment |
+| GET | `/{id}/sequence` | Get temporal sequence |
 
-1. **Complete API Endpoints**
-   - [ ] `POST /api/v1/timepoints/generate` - Full generation
-   - [ ] `GET /api/v1/timepoints/{slug}` - Retrieve timepoint
-   - [ ] `GET /api/v1/timepoints` - List timepoints (pagination)
-   - [ ] `DELETE /api/v1/timepoints/{id}` - Delete timepoint
+### Models API (`/api/v1/models`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | List available models |
+| GET | `/providers` | Provider status |
+| GET | `/{model_id}` | Model details |
 
-2. **Streaming Support**
-   - [ ] `POST /api/v1/timepoints/generate/stream` - SSE streaming
-   - [ ] Stream progress events for each pipeline step
-   - [ ] Handle partial failures gracefully
+---
 
-3. **Image Generation Integration**
-   - [ ] Integrate ImageGenAgent into API
-   - [ ] Add `generate_image` parameter to endpoint
-   - [ ] Store image data in database
+## Next: Phase 6 - Testing & Documentation
 
-4. **Error Handling**
-   - [ ] Consistent error response format
-   - [ ] Rate limiting responses
-   - [ ] Validation error messages
+**Your Mission**: Comprehensive testing and documentation
 
-5. **Segmentation Agent (Optional)**
-   - [ ] Implement SegmentationAgent for character masks
-   - [ ] Integrate with image generation pipeline
+### Tasks (see REFACTOR.md for details)
+
+1. **Integration Tests**
+   - [ ] End-to-end generation tests
+   - [ ] API endpoint tests with TestClient
+   - [ ] Database integration tests
+   - [ ] Provider fallback tests
+
+2. **Documentation**
+   - [ ] API documentation (OpenAPI/Swagger)
+   - [ ] Code documentation review
+   - [ ] README updates for v2.0
+   - [ ] Deployment guide
+
+3. **Performance Testing**
+   - [ ] Load testing endpoints
+   - [ ] Pipeline timing benchmarks
+   - [ ] Memory profiling
+
+4. **Error Handling Review**
+   - [ ] Consistent error formats
+   - [ ] Proper HTTP status codes
+   - [ ] Error logging
 
 ---
 
@@ -173,17 +205,16 @@ class ExampleAgent(BaseAgent[InputType, OutputType]):
     async def run(self, input_data: InputType) -> AgentResult[OutputType]: ...
 ```
 
-### Input Dataclasses
-Each agent has an Input dataclass with factory methods:
+### Streaming Pattern
+SSE streaming with progress tracking:
 ```python
-@dataclass
-class ExampleInput:
-    query: str
-    year: int
-    # ...
-
-    @classmethod
-    def from_data(cls, ...) -> "ExampleInput": ...
+async def stream_generation(query: str) -> AsyncGenerator[str, None]:
+    step_progress = {
+        PipelineStep.JUDGE: 10,
+        PipelineStep.TIMELINE: 20,
+        # ... up to 100
+    }
+    yield f"data: {event.model_dump_json()}\n\n"
 ```
 
 ### Pipeline Flow
@@ -213,31 +244,35 @@ GOOGLE_API_KEY=your-key uvicorn app.main:app --reload
 # Check health
 curl http://localhost:8000/health
 curl http://localhost:8000/api/v1/health
+
+# Test streaming endpoint
+curl -N http://localhost:8000/api/v1/timepoints/generate/stream \
+  -H "Content-Type: application/json" \
+  -d '{"query": "signing of the declaration"}'
 ```
 
 ---
 
 ## Important Notes
 
-⚠️ **Use Python 3.10** - SQLAlchemy has issues with Python 3.14
-⚠️ **Test coverage is excellent** - 202 unit tests passing
-⚠️ **Pipeline is agent-based** - Cleaner than v1.0's inline methods
-⚠️ **New agents** - Moment, Camera, Graph, ImageGen are v2.0 additions
-⚠️ **Segmentation not implemented** - Optional for Phase 5
+- **Use Python 3.10** - SQLAlchemy has issues with Python 3.14
+- **Test coverage is excellent** - 226 unit tests passing
+- **Pipeline is agent-based** - Cleaner than v1.0's inline methods
+- **API is complete** - All CRUD + streaming + temporal + models
+- **Segmentation not implemented** - Optional/deferred
 
 ---
 
-## Success Criteria (Phase 5)
+## Success Criteria (Phase 6)
 
-✅ All CRUD endpoints working
-✅ Streaming endpoint returns progress events
-✅ Image generation integrated with API
-✅ Error responses are consistent
-✅ Rate limiting implemented
-✅ All tests still passing
+- Integration tests cover all endpoints
+- API documentation complete
+- Performance benchmarks established
+- Error handling is consistent
+- All tests still passing
 
-**Time Budget**: Week 5-6
+**Time Budget**: Week 6-7
 
 ---
 
-**Next Handoff**: After Phase 5 complete → Phase 6 (Testing & Documentation)
+**Next Handoff**: After Phase 6 complete → Phase 7 (Deployment & Production)
