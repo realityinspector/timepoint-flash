@@ -1,7 +1,7 @@
 # HANDOFF - TIMEPOINT Flash v2.0
 
-**Status**: v2.0.3 - Free Model Support & Image Generation Fix
-**Date**: 2025-12-02
+**Status**: v2.0.9 - Proactive Rate Limiting
+**Date**: 2025-12-03
 **Branch**: `main`
 
 ---
@@ -43,7 +43,7 @@
 - Image generation integration
 
 ### Phase 6: Testing & Documentation
-- **265 tests passing** (39 new integration tests)
+- **362 tests passing** (39 integration tests, 20 character parallel tests, 50 tier/parallelism tests, 25 rate limiter tests)
 - Integration tests for all API endpoints
 - Complete documentation suite
 
@@ -115,6 +115,136 @@
   - Fixed `CameraData.composition` type annotation
   - Fixed `CharacterData` schema validation
 
+### Phase 10: Parallel Pipeline Execution
+- **Parallel LLM Calls** (`app/core/pipeline.py`)
+  - Three-phase execution strategy for optimal parallelism
+  - Phase 1 (sequential): Judge → Timeline → Scene → Characters
+  - Phase 2 (parallel): Graph + Moment + Camera run concurrently
+  - Phase 3 (sequential): Dialog → ImagePrompt → ImageGen
+  - `asyncio.gather()` for parallel execution in `run()`
+  - `asyncio.as_completed()` for streaming with parallel results
+- **Configurable Parallelism** (`app/config.py`)
+  - `PIPELINE_MAX_PARALLELISM` setting (1-5, default 3)
+  - Semaphore-controlled concurrency to prevent rate limiting
+  - Environment variable override support
+- **Demo CLI Fix** (`demo.sh`)
+  - Cross-platform millisecond timestamps using Python
+  - Fixed macOS `date +%N` incompatibility (outputs literal "N")
+  - `get_ms()` helper function for timing calculations
+
+### Phase 11: Parallel Character Bio Generation
+- **Two-Phase Character Generation** (`app/core/pipeline.py`)
+  - Phase 1: `CharacterIdentificationAgent` - Fast identification of who's in the scene
+  - Phase 2: `CharacterBioAgent` - Detailed bio for each character (runs in parallel!)
+  - Fallback to single-call `CharactersAgent` if identification fails
+- **New Schemas** (`app/schemas/character_identification.py`)
+  - `CharacterStub` - Lightweight character identification
+  - `CharacterIdentification` - Phase 1 result with cast context
+  - `get_cast_context()` method for relationship coherence
+- **New Agents** (`app/agents/`)
+  - `CharacterIdentificationAgent` - Fast identification (temperature 0.5)
+  - `CharacterBioAgent` - Detailed bio generation (temperature 0.7)
+  - `create_fallback_character()` for error handling
+- **New Prompts** (`app/prompts/`)
+  - `character_identification.py` - Fast ID prompt (brief descriptions only)
+  - `character_bio.py` - Single bio prompt with full cast context
+- **Performance Improvement**
+  - Character bios now generated in parallel (up to 8 concurrent calls)
+  - Each bio call receives full cast context for relationship coherence
+  - Graceful fallback with `create_fallback_character()` on individual failures
+
+### Phase 12: Adaptive Parallelism with Model Tier Planning
+- **Model Tier Classification** (`app/core/llm_router.py`)
+  - `ModelTier` enum: FREE, PAID, NATIVE
+  - `get_model_tier()` method on LLMRouter to classify current model
+  - `get_recommended_parallelism()` method for tier-based parallelism
+  - `TIER_PARALLELISM` configuration: FREE=1, PAID=2, NATIVE=3
+- **Proactive Execution Planning** (`app/core/pipeline.py`)
+  - `_plan_execution()` method determines parallelism before execution
+  - `model_tier` property for cached tier access
+  - `use_parallel_characters` property: FALSE for FREE tier
+  - Execution plan logged at pipeline start
+- **Tier-Aware Character Generation**
+  - FREE tier: Uses single-call `CharactersAgent` (avoids rate limits)
+  - PAID/NATIVE tier: Uses parallel bio generation
+  - Proactive strategy vs reactive retry mechanism
+- **Rate Limit Prevention**
+  - FREE models run sequentially (parallelism=1)
+  - Prevents 429 errors instead of relying on exponential backoff
+  - Logs execution strategy at pipeline start
+- **New Tests** (`tests/unit/test_model_tier.py`)
+  - 19 tests for ModelTier, is_free_model, tier detection, parallelism
+
+### Phase 13: Graph-Informed Character Bios
+- **Integrated Graph Generation** (`app/core/pipeline.py`)
+  - Graph now runs INSIDE `_step_characters()` between identification and bios
+  - Three-phase character generation: CharacterID → Graph → Parallel Bios
+  - Character bios receive relationship context from graph data
+  - Pipeline flow: Judge → Timeline → Scene → Characters(ID→Graph→Bios) → Moment+Camera → Dialog → ImagePrompt
+- **CharacterBioInput Enhancement** (`app/agents/character_bio.py`)
+  - Added `graph_data: GraphData | None` field to CharacterBioInput
+  - Updated `from_identification()` factory to accept graph_data parameter
+  - `get_prompt()` extracts relationships for the specific character
+- **Character Bio Prompt** (`app/prompts/character_bio.py`)
+  - Added `relationship_context` parameter for graph relationships
+  - New "RELATIONSHIP GRAPH" section in prompt when graph data available
+  - Character expressions/poses informed by relationship dynamics
+- **Pipeline Simplification**
+  - Parallel phase now only runs Moment + Camera (Graph moved to Characters)
+  - Progress percentages updated: Characters=50%, Moment/Camera=65%, Dialog=80%
+- **Improved Character Consistency**
+  - Character bios now reflect relationship tensions (ally, rival, mentor, etc.)
+  - Emotional tones from graph inform character expressions
+  - Better coherence between character portrayals in the same scene
+
+### Phase 14: Hyper Parallelism Mode
+- **ParallelismMode Enum** (`app/config.py`)
+  - Four modes: SEQUENTIAL (1 at a time), NORMAL (tier default), AGGRESSIVE (higher), MAX (provider limit - 1)
+  - `PRESET_PARALLELISM` maps quality presets to parallelism modes (HYPER → MAX)
+  - `PROVIDER_RATE_LIMITS` defines per-provider concurrent limits (Google=8, OpenRouter=5)
+  - `TIER_CONCURRENT_LIMITS` defines tier×mode matrix for max concurrent calls
+- **LLMRouter Parallelism Methods** (`app/core/llm_router.py`)
+  - `get_provider_limit()` - Returns provider's max concurrent calls
+  - `get_effective_max_concurrent()` - Combines tier + mode + provider limits
+  - `get_parallelism_mode()` - Returns mode from preset or default NORMAL
+  - For MAX mode: uses provider limit - 1 to leave headroom
+- **Optimized Pipeline Execution** (`app/core/pipeline.py`)
+  - Two execution flows: standard (SEQUENTIAL/NORMAL) and optimized (AGGRESSIVE/MAX)
+  - **Standard flow**: Characters → Moment + Camera (parallel)
+  - **Optimized flow**: Camera starts immediately after Scene (doesn't wait for Characters)
+  - `_run_standard_flow()` - Original execution path
+  - `_run_optimized_flow()` - Camera parallel with Characters
+  - `_step_characters_optimized()` - CharacterID → Graph + Moment + Bios (parallel)
+  - `use_optimized_flow` property triggers optimized path for AGGRESSIVE/MAX modes
+- **Preset Integration**
+  - HYPER preset automatically uses MAX parallelism mode
+  - HD and BALANCED presets use NORMAL mode
+  - Presets regulate parallelism based on tier AND call limits
+- **New Tests** (`tests/unit/test_model_tier.py`)
+  - 31 new tests for Phase 14 parallelism modes
+  - Tests for ParallelismMode, PRESET_PARALLELISM, PROVIDER_RATE_LIMITS
+  - Tests for get_preset_parallelism(), get_tier_max_concurrent()
+  - Tests for LLMRouter parallelism methods
+
+### Phase 15: Proactive Rate Limiting & Cleanup
+- **Token Bucket Rate Limiter** (`app/core/rate_limiter.py`)
+  - `TokenBucket` class with capacity, refill rate, async-safe locking
+  - `RateLimiterRegistry` manages per-tier rate limiters
+  - `TIER_RATE_LIMITS`: FREE (8 rpm, burst 2), PAID (45 rpm, burst 5), NATIVE (58 rpm, burst 8)
+  - `acquire_rate_limit()` convenience function for model-based tier detection
+  - `get_tier_from_model()` detects tier from model ID (`:free`, `gemini-*`, OpenRouter)
+  - Graceful degradation: disables itself after 5 consecutive failures
+- **LLM Router Integration** (`app/core/llm_router.py`)
+  - `_call_with_retry()` now acquires rate limit token BEFORE making API call
+  - Proactive rate limiting prevents 429s instead of reactive retry
+  - Combined with existing exponential backoff for defense in depth
+- **File Cleanup**
+  - Deleted duplicate files: `README 2.md`, `config 2.py`, `conftest 2.py`, etc.
+  - Archived outdated docs: `REFACTOR.md`, `TESTING.md`, `VERIFICATION_CHECKLIST.md` → `archive/`
+- **New Tests** (`tests/unit/test_rate_limiter.py`)
+  - 25 tests for TokenBucket, tier detection, registry, concurrency
+  - Tests for graceful degradation and failure tracking
+
 ---
 
 ## Repository Structure
@@ -126,7 +256,7 @@ timepoint-flash/
 │   ├── config.py            # Pydantic settings
 │   ├── models.py            # SQLAlchemy models
 │   ├── database.py          # Database connection
-│   ├── agents/              # 10 agent implementations
+│   ├── agents/              # 12 agent implementations
 │   ├── core/                # Provider, router, temporal
 │   ├── schemas/             # Pydantic response models
 │   ├── prompts/             # Prompt templates
@@ -153,8 +283,8 @@ timepoint-flash/
 ├── .env.example            # Environment template
 ├── README.md               # v2.0 documentation
 ├── QUICKSTART.md           # Getting started guide
-├── REFACTOR.md             # Architecture plan
 ├── HANDOFF.md              # This file
+├── archive/                # Archived v1 docs and outdated files
 ├── demo.sh                 # Interactive demo CLI
 └── run.sh                  # Server runner script
 ```
@@ -236,6 +366,9 @@ DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/db
 ENVIRONMENT=production
 DEBUG=false
 PORT=8000
+
+# Pipeline
+PIPELINE_MAX_PARALLELISM=3  # 1-5, concurrent LLM calls
 ```
 
 See `.env.example` for complete list.
@@ -254,9 +387,165 @@ See `.env.example` for complete list.
 ## Important Notes
 
 - **Python 3.10** required for SQLAlchemy compatibility
-- **265 tests passing** with comprehensive coverage
+- **362 tests passing** with comprehensive coverage
+- **12 specialized agents** for temporal generation
 - **All APIs complete** - CRUD, streaming, temporal, models
 - **Production ready** - Docker, migrations, cloud configs
+- **Adaptive parallelism** - FREE models run sequentially to avoid rate limits
+- **Hyper parallelism** - HYPER preset uses MAX mode with optimized execution flow
+- **Proactive rate limiting** - Token bucket prevents 429s before they happen
+
+---
+
+## v2.0.9 Release
+
+**Tag**: `v2.0.9`
+**Date**: 2025-12-03
+
+### New in v2.0.9
+- **Proactive Rate Limiting** - Token bucket algorithm prevents 429 errors before they happen
+- **Tier-Based Rate Limits** - FREE (8 rpm), PAID (45 rpm), NATIVE (58 rpm)
+- **Graceful Degradation** - Rate limiter disables itself after 5 consecutive failures
+- **File Cleanup** - Removed duplicate files and archived outdated docs
+
+### Technical Details
+- `TokenBucket` class in `app/core/rate_limiter.py`
+- `RateLimiterRegistry` for per-tier rate limiters
+- `TIER_RATE_LIMITS`: FREE (8 rpm, burst 2), PAID (45 rpm, burst 5), NATIVE (58 rpm, burst 8)
+- `acquire_rate_limit()` integrates at `_call_with_retry()` level
+- Combined proactive (token bucket) + reactive (exponential backoff) rate limit handling
+
+### Rate Limiting Strategy
+1. **Proactive**: Token bucket waits BEFORE making API call if bucket empty
+2. **Reactive**: Exponential backoff retries if 429 still occurs (defense in depth)
+3. **Graceful**: Disables itself if rate limiter fails repeatedly (allows requests through)
+
+### Test Coverage
+- 362 tests passing (25 new rate limiter tests)
+
+---
+
+## v2.0.8 Release
+
+**Tag**: `v2.0.8`
+**Date**: 2025-12-03
+
+### New in v2.0.8
+- **Hyper Parallelism Mode** - HYPER preset uses MAX parallelism for fastest generation
+- **Optimized Execution Flow** - Camera starts immediately after Scene in AGGRESSIVE/MAX modes
+- **ParallelismMode Enum** - Four modes: SEQUENTIAL, NORMAL, AGGRESSIVE, MAX
+- **Provider-Aware Limits** - Respects per-provider concurrent call limits (Google=8, OpenRouter=5)
+- **Tier-Based Parallelism Matrix** - FREE/PAID/NATIVE tiers × parallelism modes
+
+### Technical Details
+- `ParallelismMode` enum in `app/config.py`
+- `PRESET_PARALLELISM`: HYPER→MAX, HD/BALANCED→NORMAL
+- `get_effective_max_concurrent()`: combines tier + mode + provider limits
+- For MAX mode: uses provider limit - 1 to leave headroom
+- Optimized flow: Camera parallel with Characters, Moment parallel with Graph+Bios
+
+### Execution Flows
+**Standard Flow (SEQUENTIAL/NORMAL)**:
+- Judge → Timeline → Scene → Characters (with Graph) → Moment+Camera (parallel) → Dialog → ImagePrompt
+
+**Optimized Flow (AGGRESSIVE/MAX)**:
+- Judge → Timeline → Scene → Camera (starts immediately) + Characters (CharacterID → Graph+Moment+Bios parallel) → Dialog → ImagePrompt
+
+### Test Coverage
+- 340 tests passing (31 new Phase 14 tests)
+
+---
+
+## v2.0.7 Release
+
+**Tag**: `v2.0.7`
+**Date**: 2025-12-03
+
+### New in v2.0.7
+- **Graph-Informed Character Bios** - Character bios now receive relationship context from graph
+- **Integrated Graph Generation** - Graph runs inside character step, before bios
+- **Three-Phase Character Generation** - CharacterID → Graph → Parallel Bios
+- **Improved Character Consistency** - Expressions and poses reflect relationship dynamics
+
+### Technical Details
+- `CharacterBioInput.graph_data` field for relationship context
+- `character_bio.py` prompt includes "RELATIONSHIP GRAPH" section
+- Pipeline flow: Characters(ID→Graph→Bios) → Moment+Camera (parallel) → Dialog
+- Progress percentages: Characters=50%, Moment/Camera=65%, Dialog=80%
+
+### Test Coverage
+- 309 tests passing
+
+---
+
+## v2.0.6 Release
+
+**Tag**: `v2.0.6`
+**Date**: 2025-12-03
+
+### New in v2.0.6
+- **Adaptive Parallelism** - Model tier classification determines execution strategy
+- **Proactive Rate Limit Prevention** - FREE models run sequentially instead of hitting 429 errors
+- **Model Tier Classification** - FREE (`:free` suffix), PAID (OpenRouter), NATIVE (Google)
+- **Execution Planning** - `_plan_execution()` determines strategy before pipeline runs
+
+### Technical Details
+- `ModelTier` enum in `app/core/llm_router.py`
+- `TIER_PARALLELISM`: FREE=1, PAID=2, NATIVE=3
+- `get_model_tier()` classifies current model
+- `use_parallel_characters` property skips parallel bios for FREE tier
+
+### Test Coverage
+- 309 tests passing (19 new tier detection tests)
+
+---
+
+## v2.0.5 Release
+
+**Tag**: `v2.0.5`
+**Date**: 2025-12-02
+
+### New in v2.0.5
+- **Parallel Character Bio Generation** - Character bios now generated in parallel
+- **Two-Phase Character Generation** - Fast identification + parallel detailed bios
+- **2 New Agents** - `CharacterIdentificationAgent` and `CharacterBioAgent`
+- **2 New Prompts** - `character_identification.py` and `character_bio.py`
+- **New Schema** - `CharacterIdentification` with `CharacterStub` for lightweight ID
+
+### Performance Improvement
+- Character step now runs 1 identification call + N parallel bio calls (N = character count)
+- Up to 8 character bios generated concurrently
+- Each bio call receives full cast context for relationship coherence
+
+### Technical Details
+- `CharacterIdentificationAgent`: Fast identification (temperature 0.5)
+- `CharacterBioAgent`: Detailed bio generation (temperature 0.7)
+- `create_fallback_character()`: Graceful error handling for individual failures
+- Falls back to single-call `CharactersAgent` if identification fails
+
+### Test Coverage
+- 290 tests passing (20 new character parallel tests)
+
+---
+
+## v2.0.4 Release
+
+**Tag**: `v2.0.4`
+**Date**: 2025-12-02
+
+### New in v2.0.4
+- **Parallel Pipeline Execution** - Graph, Moment, and Camera steps run concurrently
+- **Configurable Parallelism** - `PIPELINE_MAX_PARALLELISM` env var (1-5, default 3)
+- **Semaphore Control** - Prevents rate limiting with concurrent LLM calls
+- **Cross-platform Demo CLI** - Fixed macOS millisecond timing using Python
+
+### Performance Improvement
+- 3 LLM calls now execute in parallel during pipeline phase 2
+- ~30-40% faster generation for independent steps
+- Streaming endpoint yields parallel results as they complete
+
+### Bug Fixes
+- Fixed `date +%s%3N` bash arithmetic error on macOS
 
 ---
 
