@@ -237,7 +237,8 @@
 - **LLM Router Integration** (`app/core/llm_router.py`)
   - `_call_with_retry()` now acquires rate limit token BEFORE making API call
   - Proactive rate limiting prevents 429s instead of reactive retry
-  - Combined with existing exponential backoff for defense in depth
+  - **Transient error retry**: Now retries on 500/502/503/504 errors (not just 429)
+  - Combined proactive + reactive retry with exponential backoff for defense in depth
 - **File Cleanup**
   - Deleted duplicate files: `README 2.md`, `config 2.py`, `conftest 2.py`, etc.
   - Archived outdated docs: `REFACTOR.md`, `TESTING.md`, `VERIFICATION_CHECKLIST.md` → `archive/`
@@ -405,6 +406,7 @@ See `.env.example` for complete list.
 ### New in v2.0.9
 - **Proactive Rate Limiting** - Token bucket algorithm prevents 429 errors before they happen
 - **Tier-Based Rate Limits** - FREE (8 rpm), PAID (45 rpm), NATIVE (58 rpm)
+- **Transient Error Retry** - Now retries on 500/502/503/504 server errors (not just 429)
 - **Graceful Degradation** - Rate limiter disables itself after 5 consecutive failures
 - **File Cleanup** - Removed duplicate files and archived outdated docs
 
