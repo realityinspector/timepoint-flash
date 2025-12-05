@@ -1,6 +1,6 @@
 # HANDOFF - TIMEPOINT Flash v2.0
 
-**Status**: v2.1.0 - Character Interactions
+**Status**: v2.2.0 - Model Selection for Interactions
 **Date**: 2025-12-04
 **Branch**: `main`
 
@@ -353,6 +353,35 @@
   - Added SSE event validation test for chat streaming
   - Verifies API returns `token` and `done` events (not `response` or `chunk`)
 
+### Phase 20: Model Selection for Character Interactions
+- **Model Selection in Interaction APIs** (`app/api/v1/interactions.py`)
+  - Added `model` and `response_format` fields to `ChatAPIRequest`, `DialogAPIRequest`, `SurveyAPIRequest`
+  - Agents receive model and response_format from API requests
+  - Supports Google native models (`gemini-2.5-flash`) and OpenRouter models (`google/gemini-2.0-flash-001`)
+- **ResponseFormat Enum** (`app/schemas/chat.py`)
+  - Three modes: `STRUCTURED` (JSON schema), `TEXT` (plain text), `AUTO` (detect from model)
+  - Added to `ChatRequest`, `DialogExtensionRequest`, `SurveyRequest`
+- **Model Capability Detection** (`app/core/model_capabilities.py`)
+  - `TextModelCapability` enum for JSON schema, JSON mode, function calling, streaming
+  - `TextModelConfig` dataclass with model capabilities and limits
+  - `TEXT_MODEL_REGISTRY` with known model configurations
+  - `supports_structured_output()` checks if model can use structured responses
+  - `infer_provider_from_model_id()` detects provider from model ID pattern
+  - `get_available_interaction_models()` returns models for UI selection
+- **Agent Model Support** (`app/agents/`)
+  - `CharacterChatAgent`, `DialogExtensionAgent`, `SurveyAgent` accept `model` and `response_format`
+  - `_should_use_structured()` method determines response format based on model capabilities
+  - Router created with custom model if specified
+- **Demo CLI Model Selection** (`demo.sh`)
+  - `select_interaction_model()` function with 7 model options
+  - Model selection before Chat (11), Dialog (12), Survey (13)
+  - `build_interaction_payload()` helper adds model/response_format to JSON
+  - Visual feedback showing selected model during operation
+- **Test Coverage** (`test-demo.sh` v2.1.0)
+  - Tests for model parameter acceptance on all interaction endpoints
+  - Integration test with model override (`gemini-2.5-flash`)
+  - Response format validation tests
+
 ---
 
 ## Repository Structure
@@ -515,6 +544,36 @@ See `.env.example` for complete list.
 - **Hyper parallelism** - HYPER preset uses MAX mode with optimized execution flow
 - **Proactive rate limiting** - Token bucket prevents 429s before they happen
 - **Character interactions** - Chat, dialog extension, survey with SSE streaming
+
+---
+
+## v2.2.0 Release
+
+**Tag**: `v2.2.0`
+**Date**: 2025-12-04
+
+### New in v2.2.0
+- **Model Selection for Interactions** - Choose LLM model for chat, dialog, and survey
+- **Response Format Control** - Structured (JSON), text, or auto-detect
+- **Model Capability Detection** - Automatic structured output support detection
+- **Demo CLI Model Picker** - 7 model options for character interactions
+- **Test Suite** - test-demo.sh v2.1.0 with model selection tests
+
+### Technical Details
+- `ResponseFormat` enum: STRUCTURED, TEXT, AUTO
+- `TextModelConfig` dataclass for model capabilities
+- `TEXT_MODEL_REGISTRY` with known model configurations
+- `select_interaction_model()` in demo.sh for model selection
+- `build_interaction_payload()` helper for JSON construction
+
+### Model Selection Options
+1. Default - Server default model
+2. Gemini 2.5 Flash - Google native, fast
+3. Gemini 2.0 Flash - Via OpenRouter
+4. Claude 3.5 Sonnet - Via OpenRouter
+5. GPT-4o - Via OpenRouter
+6. GPT-4o Mini - Via OpenRouter
+7. Custom - Enter any model ID
 
 ---
 
