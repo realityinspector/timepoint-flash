@@ -1,7 +1,7 @@
 # HANDOFF - TIMEPOINT Flash v2.0
 
-**Status**: v2.2.0 - Model Selection for Interactions
-**Date**: 2025-12-09
+**Status**: v2.2.1 - Schema Fix & Test Coverage
+**Date**: 2025-12-10
 **Branch**: `main`
 
 ---
@@ -395,6 +395,25 @@
   - Added Claude Sonnet 4.5 (`anthropic/claude-sonnet-4.5`) - Optimized for coding/agents
   - Model selection menu now has 11 options (was 9)
 
+### Phase 22: Schema Fix & Test Coverage Gap
+- **JudgeResult Schema Fix** (`app/schemas/judge.py`)
+  - Fixed `cleaned_query` field from `str` to `str | None` with default `None`
+  - LLMs sometimes return `null` for `cleaned_query` on invalid queries
+  - Existing code already used `cleaned_query or state.query` fallback pattern
+- **OpenRouter Verification Fix** (`demo.sh`)
+  - Fixed Python `sys.exit(0)` not terminating properly in pipe context
+  - Changed from loop with `sys.exit()` to `any()` for single-value return
+  - `verify_openrouter()` now correctly detects available providers
+- **Improved `rapid_test_free` Logging** (`demo.sh`)
+  - Added detailed parse result logging (OK, EMPTY, MISSING, NOID, ERROR)
+  - Helps debug why free model discovery fails
+  - Shows specific reason for parse failures
+- **End-to-End Generation Test** (`test-demo.sh`)
+  - Added "Generation completes successfully (balanced)" test
+  - Runs in quick mode to catch pipeline failures early
+  - Previous tests only verified generation STARTED, not COMPLETED
+  - Uses sync endpoint with status validation
+
 ---
 
 ## Repository Structure
@@ -557,6 +576,25 @@ See `.env.example` for complete list.
 - **Hyper parallelism** - HYPER preset uses MAX mode with optimized execution flow
 - **Proactive rate limiting** - Token bucket prevents 429s before they happen
 - **Character interactions** - Chat, dialog extension, survey with SSE streaming
+
+---
+
+## v2.2.1 Release
+
+**Tag**: `v2.2.1`
+**Date**: 2025-12-10
+
+### New in v2.2.1
+- **JudgeResult Schema Fix** - `cleaned_query` field now accepts null values
+- **OpenRouter Verification Fix** - Fixed provider detection in demo.sh
+- **Improved Debugging** - Better logging for free model discovery failures
+- **End-to-End Test** - Generation completion validation in test-demo.sh
+
+### Technical Details
+- `cleaned_query: str | None` in `app/schemas/judge.py`
+- Python `any()` instead of `sys.exit()` for pipe-safe OpenRouter check
+- Parse result logging (OK, EMPTY, MISSING, NOID, ERROR) in `rapid_test_free`
+- Sync generation test with status validation runs in quick mode
 
 ---
 
